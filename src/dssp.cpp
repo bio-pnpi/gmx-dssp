@@ -286,6 +286,20 @@ const gmx::EnumerationArray<PPStretches, const char*> c_PPStretchesNames = { { "
                                                                                "default" } };
 
 /*! \brief
+ * Enum of various modes of hydrogen bond definition.
+ */
+enum class HBondDefinition : std::size_t
+{
+    Energy = 0,
+    Geometry,
+    Count
+};
+
+//! String values corresponding to hydrogen bond definition modes.
+const gmx::EnumerationArray<HBondDefinition, const char*> c_HBondDefinition = { { "energy",
+                                                                                  "geometry" } };
+
+/*! \brief
  * Describes and manipulates secondary structure attributes of a residue.
  */
 class SecondaryStructuresData
@@ -470,10 +484,11 @@ public:
                                      bool              transferredNbsMode,
                                      real              transferredCutoff,
                                      bool              transferredPiHelicesPreference,
-                                     PPStretches       transferredPolyProStretch);
+                                     PPStretches       transferredPolyProStretch,
+                                     HBondDefinition   transferredHbDef);
 
 private:
-    //! Function that parses information from a frame to determine hydrogen bonds patterns.
+    //! Function that parses information from a frame to determine hydrogen bonds (via energy or geometry calculation) patterns.
     void analyzeHydrogenBondsInFrame(const t_trxframe& fr, const t_pbc* pbc, bool nBSmode, real cutoff);
     /*! \brief
      * Function that provides a simple test if a h-bond exists within two residues of specific indices.
@@ -521,13 +536,21 @@ private:
     void calculateBends(const t_trxframe& fr, const t_pbc* pbc);
 
     /*! \brief
-     * Function that Checks if H-Bond exist according to DSSP algorithm
+     * Function that checks if H-Bond exist according to DSSP algorithm
      * kCouplingConstant = 27.888,  //  = 332 * 0.42 * 0.2
      * E = k * (1/rON + 1/rCH - 1/rOH - 1/rCN) where CO comes from one AA and NH from another
      * if R is in A
      * Hbond exists if E < -0.5
      */
     void calculateHBondEnergy(ResInfo* Donor, ResInfo* Acceptor, const t_trxframe& fr, const t_pbc* pbc);
+    /*! \brief
+     * Function that checks if H-Bond exist according to HBOND algorithm
+     * H-Bond exists if distance between Donor and Acceptor
+     * d <= 0.35 nm
+     * and Hydrogen-Donor-Acceptor angle
+     * α is < 30°.
+     */
+    void calculateHBondGeometry(ResInfo* Donor, ResInfo* Acceptor, const t_trxframe& fr, const t_pbc* pbc);
     //! Vector that contains h-bond pattern information-manipulating class for each residue in selection.
     std::vector<SecondaryStructuresData> secondaryStructuresStatusVector_;
     //! Vector of ResInfo struct that contains all important information from topology about residues in the protein structure.
@@ -547,6 +570,8 @@ private:
     HydrogenMode hMode_ = HydrogenMode::Gromacs;
     //! Enum value that defines polyproline helix stretch. Can be only equal to 2 or 3. Set in initial options.
     PPStretches polyProStretch_ = PPStretches::Default;
+    //! Enum value that defines hydrogen bond definition. Set in initial options.
+    HBondDefinition hbDef_ = HBondDefinition::Energy;
 };
 
 void SecondaryStructures::analyseTopology(const TopologyInformation& top,
@@ -649,10 +674,23 @@ void SecondaryStructures::analyzeHydrogenBondsInFrame(const t_trxframe& fr, cons
             {
                 continue;
             }
-            calculateHBondEnergy(donor, acceptor, fr, pbc);
-            if (acceptor->info_ != donor->nextResi_->info_)
+            switch (hbDef_)
             {
-                calculateHBondEnergy(acceptor, donor, fr, pbc);
+                case HBondDefinition::Energy:
+                    calculateHBondEnergy(donor, acceptor, fr, pbc);
+                    if (acceptor->info_ != donor->nextResi_->info_)
+                    {
+                        calculateHBondEnergy(acceptor, donor, fr, pbc);
+                    }
+                    break;
+                case HBondDefinition::Geometry:
+                    calculateHBondGeometry(donor, acceptor, fr, pbc);
+                    if (acceptor->info_ != donor->nextResi_->info_)
+                    {
+                        calculateHBondGeometry(acceptor, donor, fr, pbc);
+                    }
+                    break;
+                default: continue;
             }
         }
     }
@@ -662,17 +700,23 @@ void SecondaryStructures::analyzeHydrogenBondsInFrame(const t_trxframe& fr, cons
         {
             for (std::size_t acceptor = donor + 1; acceptor < frameVector_.size(); ++acceptor)
             {
-                if (calculateAtomicDistances(frameVector_[donor].getIndex(BackboneAtomTypes::AtomCA),
-                                             frameVector_[acceptor].getIndex(BackboneAtomTypes::AtomCA),
-                                             fr,
-                                             pbc)
-                    < minimalCAdistance_)
+                switch (hbDef_)
                 {
-                    calculateHBondEnergy(&frameVector_[donor], &frameVector_[acceptor], fr, pbc);
-                    if (acceptor != donor + 1)
-                    {
-                        calculateHBondEnergy(&frameVector_[acceptor], &frameVector_[donor], fr, pbc);
-                    }
+                    case HBondDefinition::Energy:
+                        calculateHBondEnergy(&frameVector_[donor], &frameVector_[acceptor], fr, pbc);
+                        if (acceptor != donor + 1)
+                        {
+                            calculateHBondEnergy(&frameVector_[acceptor], &frameVector_[donor], fr, pbc);
+                        }
+                        break;
+                    case HBondDefinition::Geometry:
+                        calculateHBondGeometry(&frameVector_[donor], &frameVector_[acceptor], fr, pbc);
+                        if (acceptor != donor + 1)
+                        {
+                            calculateHBondGeometry(&frameVector_[acceptor], &frameVector_[donor], fr, pbc);
+                        }
+                        break;
+                    default: continue;
                 }
             }
         }
@@ -682,10 +726,21 @@ void SecondaryStructures::analyzeHydrogenBondsInFrame(const t_trxframe& fr, cons
 
 bool SecondaryStructures::hasHBondBetween(std::size_t donor, std::size_t acceptor) const
 {
-    return ((frameVector_[donor].acceptor_[0] == frameVector_[acceptor].info_
-             && frameVector_[donor].acceptorEnergy_[0] < hBondEnergyCutOff_)
-            || (frameVector_[donor].acceptor_[1] == frameVector_[acceptor].info_
-                && frameVector_[donor].acceptorEnergy_[1] < hBondEnergyCutOff_));
+    if (frameVector_[donor].acceptor_[0] == frameVector_[acceptor].info_
+        && (frameVector_[donor].acceptorEnergy_[0] < hBondEnergyCutOff_ || hbDef_ == HBondDefinition::Geometry))
+    {
+        return true;
+    }
+    else if (frameVector_[donor].acceptor_[1] == frameVector_[acceptor].info_
+             && (frameVector_[donor].acceptorEnergy_[1] < hBondEnergyCutOff_
+                 || hbDef_ == HBondDefinition::Geometry))
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
 }
 
 bool SecondaryStructures::noChainBreaksBetween(std::size_t residueA, std::size_t residueB) const
@@ -925,7 +980,8 @@ std::string SecondaryStructures::performPatternSearch(const t_trxframe& fr,
                                                       bool              transferredNbsMode,
                                                       real              transferredCutoff,
                                                       bool        transferredPiHelicesPreference,
-                                                      PPStretches transferredPolyProStretch)
+                                                      PPStretches transferredPolyProStretch,
+                                                      HBondDefinition transferredHbDef)
 {
     GMX_RELEASE_ASSERT(
             !topologyVector_.empty(),
@@ -934,6 +990,7 @@ std::string SecondaryStructures::performPatternSearch(const t_trxframe& fr,
     frameVector_         = topologyVector_;
     piHelicesPreference_ = transferredPiHelicesPreference;
     polyProStretch_      = transferredPolyProStretch;
+    hbDef_               = transferredHbDef;
     secondaryStructuresStatusVector_.resize(0);
     secondaryStructuresStatusVector_.resize(frameVector_.size());
     secondaryStructuresStringLine_.resize(0);
@@ -1357,6 +1414,72 @@ void SecondaryStructures::calculateHBondEnergy(ResInfo*          donor,
     }
 }
 
+void SecondaryStructures::calculateHBondGeometry(ResInfo*          donor,
+                                                 ResInfo*          acceptor,
+                                                 const t_trxframe& fr,
+                                                 const t_pbc*      pbc)
+{
+    // Values are taken from the HBOND algorithm.
+    const float c_rMaxDistanceNM_ = 0.35;
+    const float c_angleMaxDegree_ = 30;
+    float       degree            = 0;
+    gmx::RVec   vectorNO          = { 0, 0, 0 };
+    gmx::RVec   vectorNH          = { 0, 0, 0 };
+    gmx::RVec   vectorH           = { 0, 0, 0 };
+    if (!(donor->isProline_)
+        && (acceptor->hasIndex(BackboneAtomTypes::AtomC) && acceptor->hasIndex(BackboneAtomTypes::AtomO)
+            && donor->hasIndex(BackboneAtomTypes::AtomN) && donor->hasIndex(BackboneAtomTypes::AtomH)))
+    {
+        pbc_dx(pbc,
+               fr.x[acceptor->getIndex(BackboneAtomTypes::AtomO)],
+               fr.x[donor->getIndex(BackboneAtomTypes::AtomN)],
+               vectorNO.as_vec());
+        if (vectorNO.norm() <= c_rMaxDistanceNM_)
+        {
+            vectorH = fr.x[donor->getIndex(BackboneAtomTypes::AtomH)];
+            if (hMode_ == HydrogenMode::Dssp)
+            {
+                if (donor->prevResi_ != nullptr && donor->prevResi_->getIndex(BackboneAtomTypes::AtomC)
+                    && donor->prevResi_->getIndex(BackboneAtomTypes::AtomO))
+                {
+
+                    gmx::RVec prevCO = fr.x[donor->prevResi_->getIndex(BackboneAtomTypes::AtomC)];
+                    prevCO -= fr.x[donor->prevResi_->getIndex(BackboneAtomTypes::AtomO)];
+                    float prevCODist = calculateAtomicDistances(
+                            donor->prevResi_->getIndex(BackboneAtomTypes::AtomC),
+                            donor->prevResi_->getIndex(BackboneAtomTypes::AtomO),
+                            fr,
+                            pbc);
+                    vectorH += prevCO / prevCODist;
+                }
+            }
+            pbc_dx(pbc, vectorH, fr.x[donor->getIndex(BackboneAtomTypes::AtomN)], vectorNH.as_vec());
+            degree = gmx_angle(vectorNO, vectorNH) * gmx::c_rad2Deg;
+            if (degree <= c_angleMaxDegree_)
+            {
+                if (donor->acceptor_[0] == nullptr)
+                {
+                    donor->acceptor_[0] = acceptor->info_;
+                }
+                else if (donor->acceptor_[1] == nullptr)
+                {
+                    donor->acceptor_[1] = donor->acceptor_[0];
+                    donor->acceptor_[0] = acceptor->info_;
+                }
+
+                if (acceptor->donor_[0] == nullptr)
+                {
+                    acceptor->donor_[0] = donor->info_;
+                }
+                else if (acceptor->donor_[1] == nullptr)
+                {
+                    acceptor->donor_[1] = acceptor->donor_[0];
+                    acceptor->donor_[0] = donor->info_;
+                }
+            }
+        }
+    }
+}
 
 class Dssp : public TrajectoryAnalysisModule
 {
@@ -1385,6 +1508,8 @@ private:
     real cutoff_ = 0.9;
     //! Enum value that defines polyproline helix stretch. Set in initial options.
     PPStretches polyProStretch_ = PPStretches::Default;
+    //! Enum value that defines hydrogen bond definition. Set in initial options.
+    HBondDefinition hbDef_ = HBondDefinition::Energy;
     //! String value that defines output filename. Set in initial options.
     std::string fnmDSSPOut_ = "dssp.dat";
     //! String value that defines plot output filename. Set in initial options.
@@ -1426,9 +1551,12 @@ void Dssp::initOptions(IOptionsContainer* options, TrajectoryAnalysisSettings* s
         "previous residue (\"dssp\" option). You should always use the \"dssp\" option for "
         "structures "
         "with absent hydrogen atoms![PAR]"
+        "[TT]-hbond[tt] selects between different definitions of hydrogen bond. \"energy\" means "
+        "the calculation of a hydrogen bond using the electrostatic interaction energy and "
+        "\"geometry\" means the calculation of the hydrogen bond using geometric criterion "
+        "for the existence of a hydrogen bond.[PAR]"
         "[TT]-nb[tt] allows using GROMACS neighbor-search method to find residue pairs that may "
-        "have a "
-        "hydrogen bond instead of simply iterating over the residues among themselves.[PAR]"
+        "have a hydrogen bond instead of simply iterating over the residues among themselves.[PAR]"
         "[TT]-cutoff[tt] is a real value that defines maximum distance from residue to its "
         "neighbor residue used in [TT]-nb[tt]. Minimum (and also recommended) value is 0.9.[PAR]"
         "[TT]-clear[tt] allows you to ignore the analysis of the secondary structure residues "
@@ -1466,6 +1594,12 @@ void Dssp::initOptions(IOptionsContainer* options, TrajectoryAnalysisSettings* s
                                .defaultValue(HydrogenMode::Gromacs)
                                .enumValue(c_HydrogenModeNames)
                                .description("Hydrogens pseudoatoms creating mode"));
+    options->addOption(
+            EnumOption<HBondDefinition>("hbond")
+                    .store(&hbDef_)
+                    .defaultValue(HBondDefinition::Energy)
+                    .enumValue(c_HBondDefinition)
+                    .description("Selects between different definitions of hydrogen bond"));
     options->addOption(BooleanOption("nb").store(&nBSmode_).defaultValue(true).description(
             "Use GROMACS neighbor-search method"));
     options->addOption(RealOption("cutoff").store(&cutoff_).required().defaultValue(0.9).description(
@@ -1534,7 +1668,7 @@ void Dssp::analyzeFrame(int frnr, const t_trxframe& fr, t_pbc* pbc, TrajectoryAn
     AnalysisDataHandle dhNum_ = pdata->dataHandle(ssNumPerFrame_);
     storage_.addData(frnr,
                      patternSearch_.performPatternSearch(
-                             fr, pbc, nBSmode_, cutoff_, piHelicesPreference_, polyProStretch_));
+                             fr, pbc, nBSmode_, cutoff_, piHelicesPreference_, polyProStretch_, hbDef_));
     if (!fnmPlotOut_.empty())
     {
         dhNum_.startFrame(frnr, fr.time);
