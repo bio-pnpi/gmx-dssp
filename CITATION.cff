@@ -34,6 +34,8 @@ identifiers:
     value: 'https://gitlab.com/bio-pnpi/gmx-dssp'
   - type: url
     value: 'https://github.com/bio-pnpi/gmx-dssp'
+  - type: doi
+    value: 10.5281/zenodo.10782852
 repository-code: 'https://gitlab.com/bio-pnpi/gmx-dssp'
 abstract: >-
   This is implementation of gmx dssp as a standalone module
