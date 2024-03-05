@@ -1,12 +1,5 @@
-##Автономная версия реализации алгоритма DSSP в Gromacs.
+# Standalone version of DSSP algorithm implementation in Gromacs
 
-Для сборки требуется **версия CMAKE ≥ 3.16.3** и **версия Gromacs ≥ 2023.1**.
+Requires **CMAKE version ≥ 3.16.3** and **Gromacs version ≥ 2023.1** to build.
 
-Для установки:
-```
-mkdir build
-cd build/
-cmake ../gmx-dssp
-make 
-```
-Достаточно.  Если вам нравится то, что вы видите, обязательно посетите Gromacs.  Множество интересных вещей ждут вас там.  И это бесплатно!
+Nuff said. If you like what you see then be sure to check out Gromacs. Lots of cool stuff waiting there just for you. Also it's free!
