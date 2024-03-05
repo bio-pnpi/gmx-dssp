@@ -1,0 +1,47 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: gmx-scattering
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Sergey
+    family-names: Gorelov
+    email: gorelov_sv@pnpi.nrcki.ru
+    affiliation: >-
+      Petersburg Nuclear Physics Institute named by
+      B.P.Konstantinov of NRC «Kurchatov Institute»
+    orcid: 'https://orcid.org/0009-0007-1431-0068'
+  - given-names: Anatoly
+    family-names: Titov
+    email: titov_ai@pnpi.nrcki.ru
+    affiliation: >-
+      Petersburg Nuclear Physics Institute named by
+      B.P.Konstantinov of NRC «Kurchatov Institute»
+    orcid: 'https://orcid.org/0000-0002-0713-2992'
+  - given-names: Alexey
+    family-names: Shvetsov
+    email: shvetsov_av@pnpi.nrcki.ru
+    affiliation: >-
+      Petersburg Nuclear Physics Institute named by
+      B.P.Konstantinov of NRC «Kurchatov Institute»
+    orcid: 'https://orcid.org/0000-0003-1140-5751'
+identifiers:
+  - type: url
+    value: 'https://gitlab.com/bio-pnpi/gmx-dssp'
+  - type: url
+    value: 'https://github.com/bio-pnpi/gmx-dssp'
+repository-code: 'https://gitlab.com/bio-pnpi/gmx-dssp'
+abstract: >-
+  This is implementation of gmx dssp as a standalone module
+  for gromacs versions prior to 2024 that is aimed to
+  replace old module gmx do_dssp. Module gmx dssp implement
+  DSSP algorithm v2 and v4 and can be used to calculate
+  secondary structure of protein along MD trajectory
+keywords:
+  - GROMACS
+  - DSSP
+license: LGPL-2.1-or-later
